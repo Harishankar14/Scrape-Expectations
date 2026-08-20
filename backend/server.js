@@ -55,11 +55,11 @@ app.get('/api/search', async (req, res) => {
     return res.status(400).json({ error: 'Search query is required' });
   }
 
-  const apiUrl = process.env.BRIGHT_DATA_API_URL;
+  //const apiUrl = process.env.BRIGHT_DATA_API_URL;
   const apiToken = process.env.BRIGHT_DATA_API_TOKEN;
 
   // Fallback to mock data if Bright Data isn't configured yet
-  if (!apiUrl || !apiToken || apiToken === 'your_api_token_here') {
+  if (!apiToken || apiToken === 'your_api_token_here') {
     console.log('[Scrape-Expectations] Bright Data API not configured. Using mock data.');
     setTimeout(() => {
       res.json({
@@ -72,11 +72,11 @@ app.get('/api/search', async (req, res) => {
   }
 
   try {
-    console.log(`[Scrape-Expectations] Fetching data for: "${query}" from Bright Data...`);
+    console.log(`[Scrape-Expectations] Starting to scrape data for: "${query}" from Bright Data...`);
 
     // Example POST request to a Bright Data synchronous Web Scraper API endpoint
     // You may need to adjust the payload depending on the exact template used.
-    const response = await axios.post(
+    /* const response = await axios.post(
       apiUrl,
       { search: query, country: 'us' }, // Payload depends on the specific template/API
       {
@@ -85,25 +85,87 @@ app.get('/api/search', async (req, res) => {
           'Content-Type': 'application/json'
         }
       }
+    );*/
+    const data = JSON.stringify([
+      { "url": "https://www.amazon.in", "search_keyword": query, "max_pages": 1 },
+    ]);
+
+    const triggerResponse = await axios.post("https://api.brightdata.com/dca/trigger?collector=c_mt0y5d292ebqmtr8xd&queue_next=1",
+      data,
+      {
+        headers: {
+          "Authorization": "Bearer " + apiToken,
+          "Content-Type": "application/json",
+        },
+      }
     );
 
-    // Depending on Bright Data's response structure, you might need to map it.
-    // For now, we assume the API returns an array of products we can map over.
-    // If it returns something else, adjust this mapping logic!
-    const rawData = response.data;
-    const items = Array.isArray(rawData) ? rawData : (rawData.results || []);
+    const collection_id = triggerResponse.data.collection_id;
+    console.log("[Scrape-Expectations] Collection ID: " + collection_id);
+
+    let rawData = null;
+    let isFinished = false;
+
+    // Polling loop
+    while (!isFinished) {
+      console.log(`[Scrape-Expectations] Checking job status for ${collection_id}...`);
+      const datasetResponse = await axios.get("https://api.brightdata.com/dca/dataset?id=" + collection_id,
+        {
+          headers: {
+            "Authorization": "Bearer " + apiToken,
+          },
+        }
+      );
+
+      const responseData = datasetResponse.data;
+
+      // If it returns an object with status 'collecting', we keep waiting.
+      // Or, we can check if responseData is an array (which means data is ready).
+      if (responseData && (responseData.status === 'collecting' || responseData.status === 'building')) {
+        console.log("[Scrape-Expectations] Job still collecting, waiting 5 seconds...");
+        // Wait 5 seconds before trying again
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } else {
+        console.log("[Scrape-Expectations] Scraping complete!");
+        rawData = responseData;
+        isFinished = true;
+      }
+    }
+
+    console.log("[Scrape-Expectations] Raw Data:");
+    console.log(typeof rawData === 'string' ? rawData.substring(0, 200) + '...' : rawData);
+
+    // Bright Data often returns Newline Delimited JSON (NDJSON) as a string.
+    let items = [];
+    if (typeof rawData === 'string') {
+      // Split by newline and parse each line
+      items = rawData.trim().split('\n').map(line => {
+        try {
+          return JSON.parse(line);
+        } catch (e) {
+          return null;
+        }
+      }).filter(Boolean); // Remove any nulls from parsing errors
+    } else if (Array.isArray(rawData)) {
+      items = rawData;
+    } else if (rawData && rawData.results) {
+      items = rawData.results;
+    } else {
+      items = [rawData];
+    }
 
     const mappedResults = items.map((item, index) => ({
-      id: item.id || `scraped_${index}`,
-      productName: item.title || item.name || 'Unknown Product',
-      price: item.price || 0,
-      currency: item.currency || '$',
-      source: item.source || item.domain || 'BrightData',
+      id: `scraped_${index}`,
+      productName: item.productName || 'Unknown Product',
+      // Safely access price.value with optional chaining in case it's missing (e.g. out of stock)
+      price: item.price?.value || 0,
+      currency: item.price?.symbol || item.currency || '₹',
+      source: 'Amazon',
       rating: item.rating || 0,
-      reviews: item.reviews || 0,
+      reviews: item.reviews_count || 0,
       trustLevel: Math.floor(Math.random() * (100 - 80 + 1) + 80), // Mocked for now if not provided
-      imageUrl: item.image || item.thumbnail || 'https://via.placeholder.com/150',
-      productUrl: item.url || item.link || '#'
+      imageUrl: item.imageUrl || 'https://via.placeholder.com/150',
+      productUrl: item.productUrl || item.product_page_url || '#'
     }));
 
     res.json({
