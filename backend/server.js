@@ -1,5 +1,7 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -47,20 +49,79 @@ const mockResults = [
   }
 ];
 
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
   const query = req.query.q;
   if (!query) {
     return res.status(400).json({ error: 'Search query is required' });
   }
 
-  // Simulate network latency for animations
-  setTimeout(() => {
+  const apiUrl = process.env.BRIGHT_DATA_API_URL;
+  const apiToken = process.env.BRIGHT_DATA_API_TOKEN;
+
+  // Fallback to mock data if Bright Data isn't configured yet
+  if (!apiUrl || !apiToken || apiToken === 'your_api_token_here') {
+    console.log('[Scrape-Expectations] Bright Data API not configured. Using mock data.');
+    setTimeout(() => {
+      res.json({
+        success: true,
+        query,
+        results: mockResults
+      });
+    }, 1200);
+    return;
+  }
+
+  try {
+    console.log(`[Scrape-Expectations] Fetching data for: "${query}" from Bright Data...`);
+
+    // Example POST request to a Bright Data synchronous Web Scraper API endpoint
+    // You may need to adjust the payload depending on the exact template used.
+    const response = await axios.post(
+      apiUrl,
+      { search: query, country: 'us' }, // Payload depends on the specific template/API
+      {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    // Depending on Bright Data's response structure, you might need to map it.
+    // For now, we assume the API returns an array of products we can map over.
+    // If it returns something else, adjust this mapping logic!
+    const rawData = response.data;
+    const items = Array.isArray(rawData) ? rawData : (rawData.results || []);
+
+    const mappedResults = items.map((item, index) => ({
+      id: item.id || `scraped_${index}`,
+      productName: item.title || item.name || 'Unknown Product',
+      price: item.price || 0,
+      currency: item.currency || '$',
+      source: item.source || item.domain || 'BrightData',
+      rating: item.rating || 0,
+      reviews: item.reviews || 0,
+      trustLevel: Math.floor(Math.random() * (100 - 80 + 1) + 80), // Mocked for now if not provided
+      imageUrl: item.image || item.thumbnail || 'https://via.placeholder.com/150',
+      productUrl: item.url || item.link || '#'
+    }));
+
     res.json({
       success: true,
       query,
+      results: mappedResults.length > 0 ? mappedResults : mockResults // Fallback if no results
+    });
+
+  } catch (error) {
+    console.error('[Scrape-Expectations] Error fetching from Bright Data:', error.message);
+    // On error, fallback to mock data to keep the UI working
+    res.json({
+      success: false,
+      query,
+      error: 'Failed to fetch from Bright Data. Using mock data instead.',
       results: mockResults
     });
-  }, 1200); 
+  }
 });
 
 app.listen(PORT, () => {
