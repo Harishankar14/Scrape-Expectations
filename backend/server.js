@@ -9,45 +9,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Mock Data representing Bright Data scraper results
-const mockResults = [
-  {
-    id: 'amazon_1',
-    productName: 'Sony WH-1000XM5 Wireless Headphones',
-    price: 348.00,
-    currency: '$',
-    source: 'Amazon',
-    rating: 4.6,
-    reviews: 14200,
-    trustLevel: 95, // out of 100
-    imageUrl: 'https://m.media-amazon.com/images/I/61vJtKraasL._AC_SX679_.jpg',
-    productUrl: 'https://amazon.com'
-  },
-  {
-    id: 'flipkart_1',
-    productName: 'Sony WH-1000XM5 Bluetooth Headset',
-    price: 355.00,
-    currency: '$',
-    source: 'Flipkart',
-    rating: 4.4,
-    reviews: 9320,
-    trustLevel: 88,
-    imageUrl: 'https://rukminim2.flixcart.com/image/832/832/xif0q/headphone/m/p/a/-original-imaghxbhzhfzhyqq.jpeg?q=70',
-    productUrl: 'https://flipkart.com'
-  },
-  {
-    id: 'bestbuy_1',
-    productName: 'Sony - WH1000XM5 Wireless Noise-Canceling Headphones',
-    price: 349.99,
-    currency: '$',
-    source: 'BestBuy',
-    rating: 4.8,
-    reviews: 6500,
-    trustLevel: 92,
-    imageUrl: 'https://pisces.bbystatic.com/image2/BestBuy_US/images/products/6505/6505727_sd.jpg',
-    productUrl: 'https://bestbuy.com'
-  }
-];
+// Mock Data removed
 
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
@@ -58,14 +20,15 @@ app.get('/api/search', async (req, res) => {
   //const apiUrl = process.env.BRIGHT_DATA_API_URL;
   const apiToken = process.env.BRIGHT_DATA_API_TOKEN;
 
-  // Fallback to mock data if Bright Data isn't configured yet
+  // Fallback to empty data if Bright Data isn't configured yet
   if (!apiToken || apiToken === 'your_api_token_here') {
-    console.log('[Scrape-Expectations] Bright Data API not configured. Using mock data.');
+    console.log('[Scrape-Expectations] Bright Data API not configured. Returning empty results.');
     setTimeout(() => {
       res.json({
-        success: true,
+        success: false,
         query,
-        results: mockResults
+        error: 'API Not Configured',
+        results: []
       });
     }, 1200);
     return;
@@ -171,17 +134,17 @@ app.get('/api/search', async (req, res) => {
     res.json({
       success: true,
       query,
-      results: mappedResults.length > 0 ? mappedResults : mockResults // Fallback if no results
+      results: mappedResults
     });
 
   } catch (error) {
     console.error('[Scrape-Expectations] Error fetching from Bright Data:', error.message);
-    // On error, fallback to mock data to keep the UI working
+    // On error, return empty array
     res.json({
       success: false,
       query,
-      error: 'Failed to fetch from Bright Data. Using mock data instead.',
-      results: mockResults
+      error: 'Failed to fetch from Bright Data. The target site might be blocking requests or the API failed.',
+      results: []
     });
   }
 });
