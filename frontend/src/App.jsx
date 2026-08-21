@@ -2,36 +2,43 @@ import { useState } from 'react';
 import './index.css';
 import SearchBar from './components/SearchBar';
 import Dashboard from './components/Dashboard';
+import NotFound from './components/NotFound';
 
 function App() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
 
   const handleSearch = async (searchQuery) => {
     if (!searchQuery) return;
     setQuery(searchQuery);
     setLoading(true);
     setResults([]);
+    setSearched(false);
 
     try {
       // Direct integration to our backend API!
       const response = await fetch(`http://localhost:5000/api/search?q=${encodeURIComponent(searchQuery)}`);
       const data = await response.json();
       
-      if (data.success) {
+      if (data.success && data.results) {
         setResults(data.results);
+      } else {
+        setResults([]); // Ensure it's empty on error/failure
       }
     } catch (err) {
       console.error('Error fetching data:', err);
+      setResults([]);
     } finally {
         setLoading(false);
+        setSearched(true);
     }
   };
 
   return (
     <div className="min-h-screen">
-      <header style={{ padding: '2rem', textAlign: 'center', marginTop: results.length ? '2rem' : '15vh', transition: 'all 0.5s ease-out' }}>
+      <header style={{ padding: '2rem', textAlign: 'center', marginTop: (searched || loading) ? '2rem' : '15vh', transition: 'all 0.5s ease-out' }}>
         <h1 className="title-glow" style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>
           Scrape-Expectations
         </h1>
@@ -60,6 +67,10 @@ function App() {
         
         {results.length > 0 && !loading && (
            <Dashboard results={results} />
+        )}
+
+        {searched && results.length === 0 && !loading && (
+           <NotFound />
         )}
       </main>
     </div>

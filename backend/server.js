@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -9,12 +10,100 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Mock Data removed
+
+const CACHE_TTL_MS       = 10 * 60 * 1000; // results stay fresh for 10 min
+const REQUEST_TIMEOUT_MS = 20000;
+const DEBUG              = true;   // prints the first raw item so you can see field names — set false when happy
+
+const ALLOWED = ['amazon', 'flipkart', 'meesho', 'myntra'];
+
+const http = axios.create({
+  timeout: REQUEST_TIMEOUT_MS,
+  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 10 }),
+});
+
+/* ------------------------------------------------------------------ *
+ * Cache (with expiry)
+ * ------------------------------------------------------------------ */
+const searchCache = new Map();
+function cacheGet(key) {
+  const hit = searchCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CACHE_TTL_MS) { searchCache.delete(key); return null; }
+  return hit.data;
+}
+function cacheSet(key, data) { searchCache.set(key, { at: Date.now(), data }); }
+
+function extractPrice(raw) {
+  if (typeof raw === 'number') return raw;
+  if (raw && typeof raw.value === 'number') return raw.value;
+  if (typeof raw === 'string') {
+    const m = raw.replace(/,/g, '').match(/\d+(\.\d+)?/); // first number; ignores ₹ and price ranges
+    return m ? parseFloat(m[0]) : 0;
+  }
+  return 0;
+}
+
+function detectRetailer(item) {
+  const hay = [
+    item.source, item.seller, item.merchant, item.store, item.shop,
+    item.link, item.url, item.product_link,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return ALLOWED.find(name => hay.includes(name)) || null;
+}
+
+// Bright Data put the products under "shopping" (confirmed via debug.js)
+function pickItems(body) {
+  if (Array.isArray(body.shopping))         return body.shopping;
+  if (Array.isArray(body.shopping_results)) return body.shopping_results;
+  if (Array.isArray(body.organic))          return body.organic;
+  return [];
+}
+
+function mapItem(item, index) {
+  const source = item.source || item.seller || item.merchant || item.store || item.shop || '';
+  return {
+    id:          `serp_${index}_${Math.random().toString(36).slice(2, 8)}`,
+    productName: item.title || item.name || 'Unknown Product',
+    price:       extractPrice(item.price ?? item.extracted_price ?? item.offer_price),
+    currency:    '₹',
+    source:      source || 'Unknown',
+    retailer:    detectRetailer(item),
+    delivery:    item.delivery || item.shipping || null,
+    tags:        item.extensions || item.badges || item.tags || [],
+    imageUrl:    item.image || item.thumbnail || item.image_url || 'https://via.placeholder.com/150',
+    productUrl:  item.link || item.url || item.product_link || '#',
+  };
+}
+
+async function scrapeShopping(query, token) {
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=shop&gl=in&hl=en`;
+
+  const { data } = await http.post(
+    'https://api.brightdata.com/request',
+    { zone: 'serp_api1', url, format: 'json', data_format: 'parsed' },
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  );
+
+  let body = data;
+  if (data && data.body && typeof data.body === 'string') {
+    try { body = JSON.parse(data.body); } catch { /* keep raw */ }
+  }
+  //console.log(data)
+  return pickItems(body);
+}
 
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
-  if (!query) {
-    return res.status(400).json({ error: 'Search query is required' });
+  if (!query) return res.status(400).json({ error: 'Search query is required' });
+
+  const cacheKey = query.toLowerCase().trim();
+
+  const cached = cacheGet(cacheKey);
+  if (cached) {
+    // tried cache
+    console.log(`[Scrape-Expectations] Kind of Tried .. "${query}"`);
+    return res.json({ success: true, cached: true, query, count: cached.length, results: cached });
   }
 
   //const apiUrl = process.env.BRIGHT_DATA_API_URL;
@@ -34,121 +123,44 @@ app.get('/api/search', async (req, res) => {
     return;
   }
 
+  const started = Date.now();
+  let rawItems = [];
   try {
-    console.log(`[Scrape-Expectations] Starting to scrape data for: "${query}" from Bright Data...`);
-
-    // Example POST request to a Bright Data synchronous Web Scraper API endpoint
-    // You may need to adjust the payload depending on the exact template used.
-    /* const response = await axios.post(
-      apiUrl,
-      { search: query, country: 'us' }, // Payload depends on the specific template/API
-      {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );*/
-    const data = JSON.stringify([
-      { "url": "https://www.amazon.in", "search_keyword": query, "max_pages": 1 },
-    ]);
-
-    const triggerResponse = await axios.post("https://api.brightdata.com/dca/trigger?collector=c_mt0y5d292ebqmtr8xd&queue_next=1",
-      data,
-      {
-        headers: {
-          "Authorization": "Bearer " + apiToken,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const collection_id = triggerResponse.data.collection_id;
-    console.log("[Scrape-Expectations] Collection ID: " + collection_id);
-
-    let rawData = null;
-    let isFinished = false;
-
-    // Polling loop
-    while (!isFinished) {
-      console.log(`[Scrape-Expectations] Checking job status for ${collection_id}...`);
-      const datasetResponse = await axios.get("https://api.brightdata.com/dca/dataset?id=" + collection_id,
-        {
-          headers: {
-            "Authorization": "Bearer " + apiToken,
-          },
-        }
-      );
-
-      const responseData = datasetResponse.data;
-
-      // If it returns an object with status 'collecting', we keep waiting.
-      // Or, we can check if responseData is an array (which means data is ready).
-      if (responseData && (responseData.status === 'collecting' || responseData.status === 'building')) {
-        console.log("[Scrape-Expectations] Job still collecting, waiting 5 seconds...");
-        // Wait 5 seconds before trying again
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      } else {
-        console.log("[Scrape-Expectations] Scraping complete!");
-        rawData = responseData;
-        isFinished = true;
-      }
-    }
-
-    console.log("[Scrape-Expectations] Raw Data:");
-    console.log(typeof rawData === 'string' ? rawData.substring(0, 200) + '...' : rawData);
-
-    // Bright Data often returns Newline Delimited JSON (NDJSON) as a string.
-    let items = [];
-    if (typeof rawData === 'string') {
-      // Split by newline and parse each line
-      items = rawData.trim().split('\n').map(line => {
-        try {
-          return JSON.parse(line);
-        } catch (e) {
-          return null;
-        }
-      }).filter(Boolean); // Remove any nulls from parsing errors
-    } else if (Array.isArray(rawData)) {
-      items = rawData;
-    } else if (rawData && rawData.results) {
-      items = rawData.results;
-    } else {
-      items = [rawData];
-    }
-
-    const mappedResults = items.map((item, index) => ({
-      id: `scraped_${index}`,
-      productName: item.productName || 'Unknown Product',
-      // Safely access price.value with optional chaining in case it's missing (e.g. out of stock)
-      price: item.price?.value || 0,
-      currency: item.price?.symbol || item.currency || '₹',
-      source: 'Amazon',
-      rating: item.rating || 0,
-      reviews: item.reviews_count || 0,
-      trustLevel: Math.floor(Math.random() * (100 - 80 + 1) + 80), // Mocked for now if not provided
-      imageUrl: item.imageUrl || 'https://via.placeholder.com/150',
-      productUrl: item.productUrl || item.product_page_url || '#'
-    }));
-
-    res.json({
-      success: true,
-      query,
-      results: mappedResults
-    });
-
-  } catch (error) {
-    console.error('[Scrape-Expectations] Error fetching from Bright Data:', error.message);
-    // On error, return empty array
-    res.json({
-      success: false,
-      query,
-      error: 'Failed to fetch from Bright Data. The target site might be blocking requests or the API failed.',
-      results: []
-    });
+    rawItems = await scrapeShopping(query, apiToken);
+  } catch (e) {
+    console.error(`[Scrape-Expectations] Scrape failed: ${e.message}`);
+    return res.json({ success: false, query, error: 'Scrape failed', results: [] });
   }
+
+  console.log(`[Scrape-Expectations] Google returned ${rawItems.length} shopping items in ${Date.now() - started}ms`);
+  if (DEBUG && rawItems[0]) {
+    console.log('[Scrape-Expectations] FIRST RAW ITEM (check the real field names here):');
+    console.log(JSON.stringify(rawItems[0], null, 2));
+  }
+
+  // sort in ascending order saaar !!
+  const finalResults = rawItems
+    .map((it, i) => mapItem(it, i))
+    .filter(p => p.retailer && p.price > 0 && p.productName !== 'Unknown Product')
+    .sort((a, b) => a.price - b.price);
+
+  const perStore = finalResults.reduce((acc, p) => {
+    acc[p.retailer] = (acc[p.retailer] || 0) + 1;
+    return acc;
+  }, {});
+  //console.log(`[Scrape-Expectations] Kept ${finalResults.length} from your stores:`, perStore);
+
+  if (finalResults.length > 0) cacheSet(cacheKey, finalResults);
+
+  res.json({
+    success: true,
+    query,
+    count: finalResults.length,
+    perStore,
+    results: finalResults,
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`[Scrape-Expectations] Backend running smoothly on http://localhost:${PORT}`);
+  console.log(`[Scrape-Expectations] Backend running on http://localhost:${PORT}`);
 });
