@@ -133,10 +133,10 @@ app.get('/api/search', async (req, res) => {
   }
 
   console.log(`[Scrape-Expectations] Google returned ${rawItems.length} shopping items in ${Date.now() - started}ms`);
-  if (DEBUG && rawItems[0]) {
+  /*if (DEBUG && rawItems[0]) {
     console.log('[Scrape-Expectations] FIRST RAW ITEM (check the real field names here):');
     console.log(JSON.stringify(rawItems[0], null, 2));
-  }
+  }*/
 
   // sort in ascending order saaar !!
   const finalResults = rawItems

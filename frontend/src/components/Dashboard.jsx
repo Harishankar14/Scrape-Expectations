@@ -1,6 +1,6 @@
 import ProductCard from './ProductCard';
 
-export default function Dashboard({ results }) {
+export default function Dashboard({ results, lists, onAddToList, onCreateAndAdd }) {
   return (
     <div className="animate-fade-in">
       <div style={{
@@ -18,7 +18,7 @@ export default function Dashboard({ results }) {
           fontSize: '0.9rem',
           fontWeight: '500'
         }}>
-          {results.length} Sources Found
+          {results.length} results
         </span>
       </div>
 
@@ -28,7 +28,14 @@ export default function Dashboard({ results }) {
         gap: '2rem'
       }}>
         {results.map((product, idx) => (
-          <ProductCard key={product.id || idx} product={product} delay={idx * 0.1} />
+          <ProductCard
+            key={product.id || idx}
+            product={product}
+            delay={idx * 0.1}
+            lists={lists}
+            onAddToList={onAddToList}
+            onCreateAndAdd={onCreateAndAdd}
+          />
         ))}
       </div>
     </div>

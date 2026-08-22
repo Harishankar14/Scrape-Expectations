@@ -1,6 +1,7 @@
-import { ExternalLink, Star } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
+import SaveToListButton from './SaveToListButton';
 
-export default function ProductCard({ product, delay = 0 }) {
+export default function ProductCard({ product, delay = 0, lists = {}, onAddToList, onCreateAndAdd }) {
   const trustColor = 'var(--neon-cyan)';
 
   return (
@@ -83,6 +84,15 @@ export default function ProductCard({ product, delay = 0 }) {
         >
           View on {product.source} <ExternalLink size={16} />
         </a>
+
+        {onAddToList && (
+          <SaveToListButton
+            product={product}
+            lists={lists}
+            onAddToList={onAddToList}
+            onCreateAndAdd={onCreateAndAdd}
+          />
+        )}
       </div>
     </div>
   );

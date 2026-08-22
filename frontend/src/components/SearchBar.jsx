@@ -67,7 +67,7 @@ export default function SearchBar({ onSearch, loading }) {
             opacity: loading ? 0.7 : 1
           }}
         >
-          {loading ? 'Scraping...' : 'Compare'}
+          {loading ? 'Scraping...' : 'Search'}
         </button>
       </div>
     </form>
