@@ -1,0 +1,74 @@
+/* components/CustomSortDropdown.css */
+.custom-sort-wrapper {
+  position: relative;
+  width: 220px;
+}
+
+.sort-trigger {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.sort-trigger:hover {
+  border-color: #cbd5e1;
+}
+
+.arrow {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.arrow.open {
+  transform: rotate(180deg);
+}
+
+.sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  z-index: 50;
+}
+
+.sort-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: '#fff';
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sort-menu-item:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.sort-menu-item.selected {
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.checkmark {
+  font-size: 12px;
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import './index.css';
 import SearchBar from './components/SearchBar';
 import Dashboard from './components/Dashboard';
@@ -7,6 +7,8 @@ import Navbar from './components/Navbar';
 import ListsPage from './pages/ListsPage';
 import ListDetailPage from './pages/ListDetailPage';
 import { useLists } from './hooks/useLists';
+import SortDropdown from './components/SortDropdown';
+import { sortProducts } from './hooks/sortProducts';
 
 function App() {
   const [page, setPage] = useState('search'); // 'search' | 'lists' | 'list-detail'
@@ -15,6 +17,7 @@ function App() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [sortKey, setSortKey] = useState('');
 
   const { lists, createList, deleteList, addToList, removeFromList } = useLists();
 
@@ -55,6 +58,10 @@ function App() {
     setActiveList(name);
     setPage('list-detail');
   };
+  
+  const sortedResults = useMemo(() => {
+    return sortProducts(results, sortKey);
+  }, [results, sortKey]);
 
   const listCount = Object.keys(lists).length;
   const headerShifted = page !== 'search' || searched || loading;
@@ -79,8 +86,26 @@ function App() {
             <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', marginBottom: '2rem' }}>
               The multi-source product tracker. Powered by Bright Data.
             </p>
-            <SearchBar onSearch={handleSearch} loading={loading} />
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              "align-items": 'center',
+              width: '100%',
+              gap: '12px'
+            }}>
+              {/* Dummy spacer to mirror the dropdown width and force SearchBar to absolute center */}
+              <div style={{ visibility: 'hidden', flexShrink: 0 }}>
+                <SortDropdown currentSort={sortKey} onSortChange={setSortKey} />
+              </div>
+
+              <SearchBar onSearch={handleSearch} loading={loading} />
+
+              <div style={{ flexShrink: 0 }}>
+                <SortDropdown currentSort={sortKey} onSortChange={setSortKey} />
+              </div>
+            </div>
           </header>
+          
 
           <main style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
             {loading && (

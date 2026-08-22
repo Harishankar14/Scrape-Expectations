@@ -14,11 +14,11 @@ export default function SearchBar({ onSearch, loading }) {
       onSubmit={submit} 
       className="animate-fade-in"
       style={{
-        display: 'flex',
+        display: 'block',
+        width: '100%',
         alignItems: 'center',
-        margin: '0 auto',
-        maxWidth: '600px',
-        position: 'relative'
+        maxWidth: '700px',
+        position: 'relative',
       }}
     >
       <div 
