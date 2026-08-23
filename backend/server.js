@@ -92,6 +92,48 @@ async function scrapeShopping(query, token) {
   //console.log(data)
   return pickItems(body);
 }
+async function scrapeAmazonPrebuilt(query, token) {
+  const apiUrl = 'https://api.brightdata.com/datasets/v3/scrape?dataset_id=gd_l7q7dkf244hwjntr0&notify=false&include_errors=true&type=discover_new&discover_by=keyword';
+
+  try {
+    const { data } = await http.post(
+      apiUrl,
+      {
+        input: [{
+          keyword: query,
+          zipcode: "",
+          domain: "amazon.in" // Target Amazon India
+        }],
+        limit_per_input: null
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const rawItems = Array.isArray(data) ? data : (data?.results || []);
+
+    return rawItems.map((item, index) => ({
+      id:          `amz_${index}_${Math.random().toString(36).slice(2, 8)}`,
+      productName: item.title || item.name || 'Unknown Product',
+      price:       extractPrice(item.price || item.final_price || item.initial_price),
+      currency:    '₹',
+      source:      'Amazon',
+      retailer:    'amazon',
+      delivery:    item.delivery_message || item.shipping || null,
+      tags:        item.is_best_seller ? ['Best Seller'] : [],
+      imageUrl:    item.image || item.image_url || 'https://via.placeholder.com/150',
+      productUrl:  item.url || item.product_url || '#'
+    })).filter(p => p.price > 0 && p.productName !== 'Unknown Product');
+
+  } catch (e) {
+    console.error(`[Scrape-Expectations] Amazon Dataset API Error: ${e?.response?.data || e.message}`);
+    return [];
+  }
+}
 
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
@@ -101,66 +143,57 @@ app.get('/api/search', async (req, res) => {
 
   const cached = cacheGet(cacheKey);
   if (cached) {
-    // tried cache
-    console.log(`[Scrape-Expectations] Kind of Tried .. "${query}"`);
+    console.log(`[Scrape-Expectations] Returning Cached Results for: "${query}"`);
     return res.json({ success: true, cached: true, query, count: cached.length, results: cached });
   }
 
-  //const apiUrl = process.env.BRIGHT_DATA_API_URL;
   const apiToken = process.env.BRIGHT_DATA_API_TOKEN;
 
-  // Fallback to empty data if Bright Data isn't configured yet
   if (!apiToken || apiToken === 'your_api_token_here') {
-    console.log('[Scrape-Expectations] Bright Data API not configured. Returning empty results.');
-    setTimeout(() => {
-      res.json({
-        success: false,
-        query,
-        error: 'API Not Configured',
-        results: []
-      });
-    }, 1200);
-    return;
+    console.log('[Scrape-Expectations] Bright Data API token not set.');
+    return res.json({
+      success: false,
+      query,
+      error: 'API Token Not Configured',
+      results: []
+    });
   }
 
   const started = Date.now();
-  let rawItems = [];
+
   try {
-    rawItems = await scrapeShopping(query, apiToken);
+    const [rawSerpItems, amazonItems] = await Promise.all([
+      scrapeShopping(query, apiToken),
+      scrapeAmazonPrebuilt(query, apiToken)
+    ]);
+    const serpFormatted = rawSerpItems
+      .map((it, i) => mapItem(it, i))
+      .filter(p => p.retailer && p.price > 0 && p.productName !== 'Unknown Product');
+
+    const finalResults = [...serpFormatted, ...amazonItems].sort((a, b) => a.price - b.price);
+
+    const perStore = finalResults.reduce((acc, p) => {
+      acc[p.retailer] = (acc[p.retailer] || 0) + 1;
+      return acc;
+    }, {});
+
+    console.log(`[Scrape-Expectations] Fetched ${finalResults.length} items in ${Date.now() - started}ms. Distribution:`, perStore);
+
+    if (finalResults.length > 0) cacheSet(cacheKey, finalResults);
+
+    res.json({
+      success: true,
+      query,
+      count: finalResults.length,
+      perStore,
+      results: finalResults,
+    });
+
   } catch (e) {
-    console.error(`[Scrape-Expectations] Scrape failed: ${e.message}`);
-    return res.json({ success: false, query, error: 'Scrape failed', results: [] });
+    console.error(`[Scrape-Expectations] General processing error: ${e.message}`);
+    res.json({ success: false, query, error: 'Scrape process failed', results: [] });
   }
-
-  console.log(`[Scrape-Expectations] Google returned ${rawItems.length} shopping items in ${Date.now() - started}ms`);
-  /*if (DEBUG && rawItems[0]) {
-    console.log('[Scrape-Expectations] FIRST RAW ITEM (check the real field names here):');
-    console.log(JSON.stringify(rawItems[0], null, 2));
-  }*/
-
-  // sort in ascending order saaar !!
-  const finalResults = rawItems
-    .map((it, i) => mapItem(it, i))
-    .filter(p => p.retailer && p.price > 0 && p.productName !== 'Unknown Product')
-    .sort((a, b) => a.price - b.price);
-
-  const perStore = finalResults.reduce((acc, p) => {
-    acc[p.retailer] = (acc[p.retailer] || 0) + 1;
-    return acc;
-  }, {});
-  //console.log(`[Scrape-Expectations] Kept ${finalResults.length} from your stores:`, perStore);
-
-  if (finalResults.length > 0) cacheSet(cacheKey, finalResults);
-
-  res.json({
-    success: true,
-    query,
-    count: finalResults.length,
-    perStore,
-    results: finalResults,
-  });
 });
-
 app.listen(PORT, () => {
   console.log(`[Scrape-Expectations] Backend running on http://localhost:${PORT}`);
 });
