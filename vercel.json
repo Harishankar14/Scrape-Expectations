@@ -10,15 +10,11 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": {
-        "service": "/backend/server.js"
-      }
+      "destination": "/backend/server.js"
     },
     {
       "source": "/(.*)",
-      "destination": {
-        "service": "frontend"
-      }
+      "destination": "frontend"
     }
   ]
 }
