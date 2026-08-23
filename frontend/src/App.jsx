@@ -38,7 +38,7 @@ function App() {
     setSearched(false);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/search?q=${encodeURIComponent(searchQuery)}`);
+      const response = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
       const data = await response.json();
       if (data.success && data.results) {
         setResults(data.results);
